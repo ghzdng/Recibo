@@ -326,6 +326,14 @@
   }
   @media (max-width:880px){ .grid{ grid-template-columns:1fr; } }
 
+  /* No telemóvel: o registo de despesa vem primeiro, os saldos ficam por baixo */
+  @media (max-width:880px){
+    .grid, .grid > .col:first-child{ display:contents; }
+    .topbar{ order:-3; }
+    #expenseForm{ order:-2; }
+    .stats, #folhaCard{ order:-1; }
+  }
+
   .col{ display:flex; flex-direction:column; gap:20px; min-width:0; }
 
   .card{
@@ -1002,33 +1010,26 @@
 (function(){
   "use strict";
 
-  // Estrutura vinda da folha "Gastos e Receitas 2026 - opção B":
-  // grupos de despesa e respetivas rubricas.
-  var GRUPOS_BASE = [
-    {nome:'Casa',            v:'--series-1',  rubricas:['Empréstimo','Energia','Telecomunicações','Utensílios','Obras','Limpeza','Roupas','Seguros','IMI','Outros']},
-    {nome:'Compras',         v:'--series-2',  rubricas:['Supermercado','Take-Away','Roupa','Cremes','Shampoo','Calçado','Electrónica','Cookie','Outros']},
-    {nome:'Educação',        v:'--series-3',  rubricas:['Colégio Maria','Colégio Francisco','Ballet','Aula de música Maria','Livros Escola','Consumíveis Escola','Extras Escola','Formação Zico','Livros gerais','Outros']},
-    {nome:'Transporte',      v:'--series-4',  rubricas:['Combustível','Portagens','Estacionamento','UBER/Taxi','Oficina','Inspecção','IUC','Seguros','Outros']},
-    {nome:'Lazer',           v:'--series-5',  rubricas:['Restaurante','Hotel','Cafés/pastelaria','Polar e Brincar','Ginásio','Treinos','Material Desportivo','Aniversários','Cinema/Concertos','Outros']},
-    {nome:'Saúde/Bem estar', v:'--series-6',  rubricas:['Farmácia','Consultas','Exames','Unhas','Cabeleireiro','Veterinário','Outros']},
-    {nome:'Trabalho',        v:'--series-7',  rubricas:['Alimentação','Seguros','Outros']},
-    {nome:'Subscrições',     v:'--series-8',  rubricas:['Netflix','IA/Claude','Youtube','Patreon','Prime','Manie','Revolut','Curve','Etoro','Outros']},
-    {nome:'Quinta',          v:'--series-9',  rubricas:['Combustível','Tractor/alfias','Máquina','Manutenção','Rega','Bricolage','Outros']},
-    {nome:'Viagens',         v:'--series-10', rubricas:['Voos','Comida','Estadia','Outros']}
-  ];
-  // Rubricas com o mesmo nome em vários grupos (Outros, Seguros, Combustível)
-  // ficam "Nome (Grupo)" na app, para cada uma ter a sua linha na folha.
-  var AMBIG = {};
-  (function(){
-    var cnt = {};
-    GRUPOS_BASE.forEach(function(g){ g.rubricas.forEach(function(r){ var k = r.toLowerCase(); cnt[k] = (cnt[k]||0) + 1; }); });
-    Object.keys(cnt).forEach(function(k){ if(cnt[k] > 1) AMBIG[k] = true; });
-  })();
-  function qualRub(grupoNome, r){ return AMBIG[r.toLowerCase()] ? r + ' (' + grupoNome + ')' : r; }
-  function dispRub(r){ return r.replace(/ \((?:Casa|Compras|Educação|Transporte|Lazer|Saúde\/Bem estar|Trabalho|Subscrições|Quinta|Viagens)\)$/, ''); }
-  var GRUPOS = GRUPOS_BASE.map(function(g){
-    return {nome:g.nome, v:g.v, rubricas:g.rubricas.map(function(r){ return qualRub(g.nome, r); })};
-  });
+  // Estrutura (grupos de despesa, rubricas, fontes e destinos): a app lê-a da
+  // folha em cada sincronização e guarda-a no telemóvel. Os valores abaixo são
+  // só o ponto de partida antes da primeira leitura.
+  var STRUCT_DEFAULT = {
+    grupos: [
+      {nome:'Casa',            rubricas:['Empréstimo','Energia','Telecomunicações','Utensílios','Obras','Limpeza','Roupas','Seguros','IMI','Outros']},
+      {nome:'Compras',         rubricas:['Supermercado','Take-Away','Roupa','Cremes','Shampoo','Calçado','Electrónica','Cookie','Outros']},
+      {nome:'Educação',        rubricas:['Colégio Maria','Colégio Francisco','Ballet','Aula de música Maria','Livros Escola','Consumíveis Escola','Extras Escola','Formação Zico','Livros gerais','Outros']},
+      {nome:'Transporte',      rubricas:['Combustível','Portagens','Estacionamento','UBER/Taxi','Oficina','Inspecção','IUC','Seguros','Outros']},
+      {nome:'Lazer',           rubricas:['Restaurante','Hotel','Cafés/pastelaria','Polar e Brincar','Ginásio','Treinos','Material Desportivo','Aniversários','Cinema/Concertos','Outros']},
+      {nome:'Saúde/Bem estar', rubricas:['Farmácia','Consultas','Exames','Unhas','Cabeleireiro','Veterinário','Outros']},
+      {nome:'Trabalho',        rubricas:['Alimentação','Seguros','Outros']},
+      {nome:'Subscrições',     rubricas:['Netflix','IA/Claude','Youtube','Patreon','Prime','Manie','Revolut','Curve','Etoro','Outros']},
+      {nome:'Quinta',          rubricas:['Combustível','Tractor/alfias','Máquina','Manutenção','Rega','Bricolage','Outros']},
+      {nome:'Viagens',         rubricas:['Voos','Comida','Estadia','Outros']}
+    ],
+    fontes: ['Salário Catarina','Salário Zico','Empresa','Prendas','Juros','Cashback','Dividendos','Vendas','Outros'],
+    destinos: ['Reserva de Emergência','Despesas Anuais','PPR C','PPR Z','Investimentos']
+  };
+  var STRUCT_KEY = 'recibo-estrutura-v1';
   // nomes antigos (versões anteriores da app) -> nomes atuais
   var LEGACY_RUB = {
     'Outros':'Outros (Compras)', 'Combustível':'Combustível (Transporte)', 'Infantário Francisco':'Colégio Francisco',
@@ -1036,33 +1037,60 @@
     'Oficina Corolla':'Oficina', 'Seguro do carros':'Seguros (Transporte)', 'Prendas aniversário':'Aniversários',
     'Cinema':'Cinema/Concertos', 'Concertos':'Cinema/Concertos'
   };
-  var GRUPO_OUTROS = {nome:'Sem grupo', v:'--ink-faint', rubricas:[]};
-  var DEFAULT_CATS = [];
-  GRUPOS.forEach(function(g){ g.rubricas.forEach(function(r){ DEFAULT_CATS.push({label:r, v:g.v, grupo:g.nome}); }); });
-  var DEFAULT_FONTES = [
-    {label:'Salário Catarina'},
-    {label:'Salário Zico'},
-    {label:'Empresa'},
-    {label:'Prendas'},
-    {label:'Juros'},
-    {label:'Cashback'},
-    {label:'Dividendos'},
-    {label:'Vendas'},
-    {label:'Outros'}
-  ];
-  var DESTINOS = ['Reserva de Emergência','Despesas Anuais','PPR C','PPR Z','Investimentos','Outro'];
   var LEGACY_DEST = { 'Fundo de Emergência':'Reserva de Emergência', 'Contas Anuais':'Despesas Anuais' };
+  var GRUPO_OUTROS = {nome:'Sem grupo', v:'--ink-faint', rubricas:[]};
   var SLOT_VARS = ['--series-1','--series-2','--series-3','--series-4','--series-5','--series-6','--series-7','--series-8','--series-9','--series-10'];
   var MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
-  var colorAssign = {};
-  DEFAULT_CATS.forEach(function(c){ colorAssign[c.label] = c.v; });
-  GRUPOS.concat([GRUPO_OUTROS]).forEach(function(g){ colorAssign[g.nome] = g.v; });
-  var GRUPO_BY_NOME = {};
-  GRUPOS.forEach(function(g){
-    g.rubricas.forEach(function(r){ GRUPO_BY_NOME[r] = g; });
-  });
-  GRUPOS.forEach(function(g){ if(!Object.prototype.hasOwnProperty.call(GRUPO_BY_NOME, g.nome)) GRUPO_BY_NOME[g.nome] = g; });
+  // Estado derivado da estrutura (os arrays/objetos são atualizados no lugar)
+  var GRUPOS = [], DEFAULT_CATS = [], DEFAULT_FONTES = [], DESTINOS = [];
+  var AMBIG = {}, GRUPO_BY_NOME = {}, colorAssign = {};
+  var curStruct = null;
+
+  // Rubricas com o mesmo nome em vários grupos (Outros, Seguros, Combustível)
+  // ficam "Nome (Grupo)" na app, para cada uma ter a sua linha na folha.
+  function qualRub(grupoNome, r){ return AMBIG[r.toLowerCase()] ? r + ' (' + grupoNome + ')' : r; }
+  function dispRub(r){
+    var m = / \((.+)\)$/.exec(r);
+    return (m && GRUPOS.some(function(g){ return g.nome === m[1]; })) ? r.slice(0, m.index) : r;
+  }
+  function validStruct(st){
+    return !!(st && Array.isArray(st.grupos) && st.grupos.length && Array.isArray(st.fontes) && st.fontes.length &&
+              Array.isArray(st.destinos) && st.destinos.length &&
+              st.grupos.every(function(g){ return g && typeof g.nome === 'string' && Array.isArray(g.rubricas); }));
+  }
+  function applyStructure(st, silent){
+    var cnt = {};
+    st.grupos.forEach(function(g){ g.rubricas.forEach(function(r){ var k = r.toLowerCase(); cnt[k] = (cnt[k] || 0) + 1; }); });
+    Object.keys(AMBIG).forEach(function(k){ delete AMBIG[k]; });
+    Object.keys(cnt).forEach(function(k){ if(cnt[k] > 1) AMBIG[k] = true; });
+    GRUPOS.length = 0; DEFAULT_CATS.length = 0;
+    st.grupos.forEach(function(g, i){
+      var v = SLOT_VARS[i % SLOT_VARS.length];
+      var ng = { nome: g.nome, v: v, rubricas: g.rubricas.map(function(r){ return qualRub(g.nome, r); }) };
+      GRUPOS.push(ng);
+      ng.rubricas.forEach(function(r){ DEFAULT_CATS.push({ label: r, v: v, grupo: g.nome }); });
+    });
+    DEFAULT_FONTES.length = 0; st.fontes.forEach(function(f){ DEFAULT_FONTES.push({ label: f }); });
+    DESTINOS.length = 0; st.destinos.forEach(function(d){ DESTINOS.push(d); }); DESTINOS.push('Outro');
+    DEFAULT_CATS.forEach(function(c){ colorAssign[c.label] = c.v; });
+    GRUPOS.concat([GRUPO_OUTROS]).forEach(function(g){ colorAssign[g.nome] = g.v; });
+    Object.keys(GRUPO_BY_NOME).forEach(function(k){ delete GRUPO_BY_NOME[k]; });
+    GRUPOS.forEach(function(g){ g.rubricas.forEach(function(r){ GRUPO_BY_NOME[r] = g; }); });
+    GRUPOS.forEach(function(g){ if(!Object.prototype.hasOwnProperty.call(GRUPO_BY_NOME, g.nome)) GRUPO_BY_NOME[g.nome] = g; });
+    curStruct = st;
+    if(!silent){ refreshAllCategorySelects(); render(); }
+  }
+  function saveStructure(st){ try{ localStorage.setItem(STRUCT_KEY, JSON.stringify(st)); }catch(e){} }
+  function updateStructure(st){
+    if(!validStruct(st) || JSON.stringify(st) === JSON.stringify(curStruct)) return;
+    applyStructure(st, false); saveStructure(st);
+  }
+  (function(){
+    var st = null;
+    try{ var raw = localStorage.getItem(STRUCT_KEY); if(raw) st = JSON.parse(raw); }catch(e){}
+    applyStructure(validStruct(st) ? st : STRUCT_DEFAULT, true);
+  })();
   // rubrica (ou nome de grupo, para registos antigos) -> grupo; o resto vai para "Sem grupo"
   function grupoOf(cat){
     return Object.prototype.hasOwnProperty.call(GRUPO_BY_NOME, cat) ? GRUPO_BY_NOME[cat] : GRUPO_OUTROS;
@@ -2563,11 +2591,55 @@
     var n = parseFloat(s);
     return isNaN(n) ? null : n;
   }
-  var GRUPO_KEYS = GRUPOS.map(function(g){ return nk(g.nome); });
 
   // Lê as três tabelas da folha (rendimentos, poupanças, despesas) pelas
   // etiquetas da coluna A, para continuar a funcionar se inserires linhas.
-  function parseSheet(values){
+  function displayGroup(a){
+    return cleanLabel(a).toLowerCase().replace(/(^|\/)(\S)/g, function(m, p, c){ return p + c.toUpperCase(); });
+  }
+  function pushUniq(arr, label){
+    var k = nk(label);
+    if(!arr.some(function(x){ return nk(x) === k; })) arr.push(label);
+  }
+  // Lê da folha os grupos de despesa (com rubricas), as fontes de rendimento e
+  // os destinos de poupança. Um grupo é uma linha com uma linha "TOTAL <GRUPO>" abaixo.
+  function parseStructure(values){
+    var st = { grupos: [], fontes: [], destinos: [] }, groupAt = {};
+    var totals = {}, inDesp = false, i, row, a, ka, next;
+    for(i = 0; i < values.length; i++){
+      row = values[i] || []; ka = nk(cleanLabel(row[0])); next = values[i + 1] || [];
+      if(ka === 'despesas' && nk(next[0]) === 'orcamento'){ inDesp = true; continue; }
+      if(inDesp){
+        if(ka === 'total') break;
+        if(/^total\s+\S/.test(ka)) totals[ka.replace(/^total\s+/, '')] = true;
+      }
+    }
+    var sec = null, cur = null;
+    for(i = 0; i < values.length; i++){
+      row = values[i] || []; a = cleanLabel(row[0]); ka = nk(a); next = values[i + 1] || [];
+      if(ka === 'rendimentos' && nk(next[1]) === 'janeiro'){ sec = 'rend'; continue; }
+      if(ka === 'poupancas / investimentos' && nk(next[1]) === 'janeiro'){ sec = 'pou'; continue; }
+      if(ka === 'despesas' && nk(next[0]) === 'orcamento'){ sec = 'desp'; cur = null; continue; }
+      if(!sec) continue;
+      if(ka === '' || ka === 'orcamento') continue;
+      if(ka === 'total'){ sec = null; cur = null; continue; }
+      if(sec === 'rend'){ pushUniq(st.fontes, a); continue; }
+      if(sec === 'pou'){ pushUniq(st.destinos, a); continue; }
+      if(/^total\s/.test(ka)){ cur = null; continue; }
+      var empty = row.slice(1).every(function(c){ return String(c == null ? '' : c) === ''; });
+      if(totals[ka] || (a.length > 3 && a === a.toUpperCase() && /[A-ZÀ-Ú]/.test(a) && empty)){
+        cur = { nome: displayGroup(a), rubricas: [] };
+        st.grupos.push(cur); groupAt[i] = cur;
+        continue;
+      }
+      if(cur) pushUniq(cur.rubricas, a);
+    }
+    st.grupos = st.grupos.filter(function(g){ return g.rubricas.length; });
+    return { struct: st, groupAt: groupAt };
+  }
+
+  function parseSheet(values, groupAt){
+    groupAt = groupAt || {};
     var secs = { rend: {}, pou: {}, desp: {} };
     var sec = null, curG = null;
     for(var i = 0; i < values.length; i++){
@@ -2582,17 +2654,13 @@
       if(ka === '' || ka === 'orcamento') continue;
       if(ka === 'total'){ sec = null; continue; }
       if(/^total\b/.test(ka)) continue;   // subtotais por grupo ("TOTAL CASA", ...)
-      if(sec === 'desp' && GRUPO_KEYS.indexOf(ka) > -1){ curG = GRUPOS[GRUPO_KEYS.indexOf(ka)].nome; continue; }
+      if(sec === 'desp' && groupAt[i]){ curG = groupAt[i].nome; continue; }
       var vals = [], bad = [];
       for(var m = 0; m < 12; m++){
         var n = parseSheetNum(row[m + 1]);
         bad.push(n === null);
         vals.push(n === null ? 0 : n);
       }
-      // linha de grupo que a app não conhece: etiqueta em maiúsculas, sem total e sem valores
-      if(sec === 'desp' && a.length > 3 && a === a.toUpperCase() && /[A-ZÀ-Ú]/.test(a) &&
-         String(row[13] == null ? '' : row[13]) === '' && vals.every(function(v){ return v === 0; }) &&
-         row.slice(1, 13).every(function(c){ return String(c == null ? '' : c) === ''; })){ curG = null; continue; }
       if(sec === 'desp' && curG && AMBIG[a.toLowerCase()]){ a = a + ' (' + curG + ')'; ka = nk(a); }
       var ent = secs[sec][ka];
       if(!ent){ ent = secs[sec][ka] = { label: a, rows: [] }; }
@@ -2720,7 +2788,9 @@
       }, { cache: false });
       var values = extractValues(res);
       if(!values) throw { code: 'bad_shape', message: 'Resposta inesperada da folha.' };
-      var secs = parseSheet(values);
+      var ps = parseStructure(values);
+      if(ps.struct.grupos.length) updateStructure(ps.struct);
+      var secs = parseSheet(values, ps.groupAt);
       if(!Object.keys(secs.desp).length || !Object.keys(secs.rend).length){
         throw { code: 'bad_shape', message: 'Não reconheci a estrutura da folha (rendimentos/despesas).' };
       }
@@ -2949,7 +3019,7 @@
     });
     expenses.forEach(function(e){
       var n = LEGACY_RUB[e.categoria];
-      if(n){ e.categoria = n; chE = true; if(backend === 'db' && e.id) db.doc('despesas/' + e.id).set(noId(e)).catch(function(){}); }
+      if(n && DEFAULT_CATS.some(function(c){ return c.label === n; })){ e.categoria = n; chE = true; if(backend === 'db' && e.id) db.doc('despesas/' + e.id).set(noId(e)).catch(function(){}); }
     });
     fixas.forEach(function(f){
       if(f.tipo === 'receita') return;
